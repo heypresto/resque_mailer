@@ -3,7 +3,8 @@ require 'resque_mailer/version'
 module Resque
   module Mailer
     class << self
-      attr_accessor :default_queue_name, :default_queue_target, :current_env, :logger, :error_handler
+      attr_accessor :default_queue_name, :default_queue_target, :default_worker_class,
+                    :current_env, :logger, :error_handler
       attr_reader :excluded_environments
 
       def excluded_environments=(envs)
@@ -23,6 +24,7 @@ module Resque
     self.logger ||= (defined?(Rails) ? Rails.logger : nil)
     self.default_queue_target = ::Resque
     self.default_queue_name = "mailer"
+    self.default_worker_class = nil
     self.excluded_environments = [:test]
 
     module ClassMethods
@@ -61,8 +63,20 @@ module Resque
         end
       end
 
+      def queue_from_class(klass)
+        if klass.instance_variable_defined?(:@queue)
+          klass.instance_variable_get(:@queue)
+        else
+          (klass.respond_to?(:queue) and klass.queue)
+        end
+      end
+
       def queue
-        @queue || ::Resque::Mailer.default_queue_name
+        if @queue
+          @queue
+        elsif ::Resque::Mailer.default_worker_class
+          queue_from_class(::Resque::Mailer.default_worker_class)
+        end || ::Resque::Mailer.default_queue_name
       end
 
       def queue=(name)
@@ -96,6 +110,14 @@ module Resque
         ::Resque::Mailer.default_queue_target
       end
 
+      def worker_class
+        if @mailer_class.instance_variable_defined?(:@worker_class)
+          @mailer_class.instance_variable_get(:@worker_class)
+        else
+          @mailer_class.respond_to?(:worker_class) and @mailer_class.worker_class
+        end || ::Resque::Mailer.default_worker_class || @mailer_class
+      end
+
       def current_env
         if defined?(Rails)
           ::Resque::Mailer.current_env || ::Rails.env
@@ -121,7 +143,7 @@ module Resque
 
         if @mailer_class.deliver?
           begin
-            resque.enqueue(@mailer_class, @method_name, *@args)
+            resque.enqueue(worker_class, @method_name, *@args)
           rescue Errno::ECONNREFUSED, Redis::CannotConnectError
             logger.error "Unable to connect to Redis; falling back to synchronous mail delivery" if logger
             deliver!

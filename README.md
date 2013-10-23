@@ -58,7 +58,44 @@ name when starting your workers.
 
     QUEUE=application_specific_mailer rake environment resque:work
 
-Custom handling of errors that arise when sending a message is possible by 
+### Using a custom worker class for mailers
+What if you are short of memory and want to run your worker(s) without loading
+the whole rails environment? What if you would like to implement your own mailer
+worker class? Easy! Just create your resque worker class as normal and set the
+`default_worker_class` option to your class. For more fine grained controller,
+define a `worker_class` method in your mailer class and return the worker class.
+If you define a queue in your worker class, that queue will be used unless a
+queue is explicity defined in the mailer class.
+
+    # config/initializers/resque_mailer.rb
+    Resque::Mailer.default_worker_class = MyWorker
+
+    # Alternatively...
+    # app/mailers/my_mailer.rb
+    class MyMailer < ActionMailer::Base
+      include Resque::Mailer
+
+      def self.worker_class
+        MyOtherWorker
+      end
+      #...
+    end
+
+    # lib/my_worker.rb
+    class MyWorker
+      @queue = :mailman
+      def self.perform(*args)
+        # ...
+      end
+    end
+
+Then run the resque rake command **without loading the rails environment**.
+Of course, it's up to you to make sure that your worker class can deliver mail.
+Yay! Small processes!
+
+    QUEUE=mailman rake resque:work
+
+Custom handling of errors that arise when sending a message is possible by
 assigning a lambda to the `error_hander` attribute.
 
 ```ruby

@@ -25,6 +25,10 @@ class PriorityMailer < Rails3Mailer
   self.queue = 'priority_mailer'
 end
 
+class WorkerClass
+  @queue = "mailman"
+end
+
 describe Resque::Mailer do
   let(:resque) { FakeResque }
   let(:logger) { double(:logger, :error => nil) }
@@ -43,6 +47,7 @@ describe Resque::Mailer do
     end
   end
 
+
   describe "queue" do
     it "defaults to the 'mailer' queue" do
       Rails3Mailer.queue.should == "mailer"
@@ -51,6 +56,11 @@ describe Resque::Mailer do
     it "allows overriding of the default queue name" do
       Resque::Mailer.default_queue_name = "postal"
       Rails3Mailer.queue.should == "postal"
+    end
+
+    it 'uses the queue of an overriden worker class' do
+      Resque::Mailer.default_worker_class = WorkerClass
+      Rails3Mailer.queue.should == "mailman"
     end
 
     it "allows overriding of the local queue name" do
@@ -70,7 +80,25 @@ describe Resque::Mailer do
     end
 
     it 'should place the deliver action on the Resque "mailer" queue' do
+      Resque::Mailer.default_worker_class = nil
       resque.should_receive(:enqueue).with(Rails3Mailer, :test_mail, Rails3Mailer::MAIL_PARAMS)
+      @delivery.call
+    end
+
+    it "allows mailer class to override worker class", focus: true do
+      Resque::Mailer.default_worker_class = nil
+      Rails3Mailer.class_eval { def self.worker_class; WorkerClass; end }
+      resque.should_receive(:enqueue).with(WorkerClass, :test_mail, Rails3Mailer::MAIL_PARAMS)
+      @delivery.call
+      # Clean up
+      class << Rails3Mailer
+        remove_method :worker_class
+      end
+    end
+
+    it "allows the worker class to be overriden" do
+      Resque::Mailer.default_worker_class = WorkerClass
+      resque.should_receive(:enqueue).with(WorkerClass, :test_mail, Rails3Mailer::MAIL_PARAMS)
       @delivery.call
     end
 
